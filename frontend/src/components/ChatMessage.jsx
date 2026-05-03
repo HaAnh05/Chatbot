@@ -27,6 +27,10 @@ export default function ChatMessage({ role, content, timestamp }) {
         <ReactMarkdown
           remarkPlugins={[remarkMath]}
           rehypePlugins={[rehypeHighlight, rehypeKatex]}
+          components={{
+            p: ({ children }) => <p className="message-paragraph">{children}</p>,
+            li: ({ children }) => <li className="message-list-item">{children}</li>,
+          }}
         >
           {content}
         </ReactMarkdown>
