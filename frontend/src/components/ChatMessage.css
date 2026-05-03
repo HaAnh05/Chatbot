@@ -1,0 +1,121 @@
+/**
+ * ChatMessage Styles
+ */
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 18px;
+  animation: slideIn 0.28s ease-in-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message.user {
+  align-items: flex-end;
+}
+
+.chat-message.assistant {
+  align-items: flex-start;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #62718d;
+}
+
+.message-header .role {
+  font-weight: 700;
+}
+
+.message-header .timestamp {
+  font-size: 11px;
+  color: #9aa3b2;
+}
+
+.message-content {
+  padding: 16px 18px;
+  border-radius: 22px;
+  max-width: 78%;
+  word-wrap: break-word;
+  line-height: 1.65;
+  font-size: 15px;
+  box-shadow: 0 9px 28px rgba(39, 66, 111, 0.04);
+}
+
+.user .message-content {
+  background: linear-gradient(135deg, #1266ff 0%, #2987ff 100%);
+  color: white;
+  border-bottom-right-radius: 6px;
+}
+
+.assistant .message-content {
+  background: #f7faff;
+  color: #1b1f36;
+  border-bottom-left-radius: 6px;
+}
+
+.assistant .message-content {
+  max-width: 88%;
+}
+
+.message-content pre {
+  background-color: #0f172a;
+  padding: 14px;
+  border-radius: 14px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.message-content code {
+  font-family: 'Courier New', monospace;
+  background-color: #eef2ff;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+
+.message-content pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+.message-content p {
+  margin: 10px 0;
+  line-height: 1.75;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 10px 0;
+  padding-left: 22px;
+}
+
+.message-content li {
+  margin: 6px 0;
+}
+
+.message-content blockquote {
+  border-left: 4px solid #cbd5e1;
+  padding-left: 16px;
+  margin: 12px 0;
+  color: #54648d;
+  background: #f6f9ff;
+  border-radius: 12px;
+}
