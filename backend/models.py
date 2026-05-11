@@ -2,10 +2,16 @@
 SQLAlchemy ORM Models for conversation persistence and progress tracking
 """
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from backend.database import Base
+
+GMT7 = timezone(timedelta(hours=7))
+
+
+def now_gmt7():
+    return datetime.now(GMT7).replace(tzinfo=None)
 
 
 class User(Base):
@@ -14,7 +20,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_gmt7)
     
     # Relationships
     conversations = relationship("Conversation", back_populates="user")
@@ -32,8 +38,8 @@ class Conversation(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
     subject = Column(String(50), default="cpp")  # cpp, python, web, etc.
     title = Column(String(200), default="Untitled Conversation")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_gmt7)
+    updated_at = Column(DateTime, default=now_gmt7, onupdate=now_gmt7)
     
     # Relationships
     user = relationship("User", back_populates="conversations")
@@ -51,7 +57,7 @@ class Message(Base):
     conversation_id = Column(Integer, ForeignKey("conversations.id"), index=True)
     role = Column(String(10))  # 'user' or 'assistant'
     content = Column(Text)  # Message text
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=now_gmt7, index=True)
     
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
@@ -71,7 +77,7 @@ class StudentProgress(Base):
     confidence_level = Column(Float, default=0.0)  # 0.0 - 1.0
     total_conversations = Column(Integer, default=0)
     total_exercises_completed = Column(Integer, default=0)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = Column(DateTime, default=now_gmt7, onupdate=now_gmt7)
     
     # Relationships
     user = relationship("User", back_populates="progress")
@@ -92,7 +98,7 @@ class Exercise(Base):
     difficulty = Column(String(20))  # beginner, intermediate, advanced
     code_template = Column(Text)  # Template code for students
     test_cases = Column(Text)  # JSON string with expected inputs/outputs
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_gmt7)
     
     # Relationships
     submissions = relationship("ExerciseSubmission", back_populates="exercise", cascade="all, delete")
@@ -111,7 +117,7 @@ class ExerciseSubmission(Base):
     submitted_code = Column(Text)
     is_correct = Column(Boolean, default=False)
     feedback = Column(Text)  # Grading feedback
-    submitted_at = Column(DateTime, default=datetime.utcnow)
+    submitted_at = Column(DateTime, default=now_gmt7)
     
     # Relationships
     exercise = relationship("Exercise", back_populates="submissions")

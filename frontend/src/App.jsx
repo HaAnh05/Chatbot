@@ -7,6 +7,10 @@ import React, { useState, useEffect, useRef } from "react";
 import ChatMessage from "./components/ChatMessage";
 import ChatInput from "./components/ChatInput";
 import ConversationSidebar from "./components/ConversationSidebar";
+import QuizPanel from "./components/QuizPanel";
+import FlashcardPanel from "./components/FlashcardPanel";
+import MinigamePanel from "./components/MinigamePanel";
+import ProgressDashboard from "./components/ProgressDashboard";
 import * as api from "./api";
 import "./App.css";
 
@@ -18,6 +22,7 @@ export default function App() {
   const [subject, setSubject] = useState("cpp");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [activeView, setActiveView] = useState("chat"); // chat | quiz | flashcard | minigame | progress
 
   const subjectLabel = subject === "cpp" ? "C++" : "Python";
 
@@ -140,8 +145,8 @@ export default function App() {
   /**
    * Send message to chatbot
    */
-  const handleSendMessage = async (messageText) => {
-    if (!messageText.trim() || !activeConversationId) {
+  const handleSendMessage = async (messageText, imageBase64 = null) => {
+    if ((!messageText.trim() && !imageBase64) || !activeConversationId) {
       return;
     }
 
@@ -153,6 +158,7 @@ export default function App() {
       const userMessage = {
         role: "user",
         content: messageText,
+        imageBase64: imageBase64,
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, userMessage]);
@@ -161,7 +167,8 @@ export default function App() {
       const response = await api.sendChatMessage(
         messageText,
         subject,
-        activeConversationId
+        activeConversationId,
+        imageBase64
       );
 
       // Add assistant response
@@ -217,7 +224,10 @@ export default function App() {
         <header className="chat-header">
           <div>
             <h1>Trợ Lý Học Tập</h1>
-            <p>Giải thích rõ ràng, thân thiện và dễ hiểu.</p>
+            <p>
+              <span className="current-subject-badge">{subjectLabel}</span>
+              Giải thích rõ ràng, thân thiện và dễ hiểu.
+            </p>
           </div>
 
           {/* Subject Selector */}
@@ -235,7 +245,42 @@ export default function App() {
           </div>
         </header>
 
+        {/* Navigation Tabs */}
+        <nav className="nav-tabs">
+          {[
+            { id: "chat", label: "Chat" },
+            { id: "quiz", label: "Quiz" },
+            { id: "flashcard", label: "Flashcard" },
+            { id: "minigame", label: "Thử thách" },
+            { id: "progress", label: "Tiến trình" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              className={`nav-tab ${activeView === tab.id ? "active" : ""}`}
+              onClick={() => setActiveView(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Conditional View Rendering */}
+        {activeView === "quiz" && (
+          <QuizPanel subject={subject} onClose={() => setActiveView("chat")} />
+        )}
+        {activeView === "flashcard" && (
+          <FlashcardPanel subject={subject} onClose={() => setActiveView("chat")} />
+        )}
+        {activeView === "minigame" && (
+          <MinigamePanel subject={subject} onClose={() => setActiveView("chat")} />
+        )}
+        {activeView === "progress" && (
+          <ProgressDashboard subject={subject} onClose={() => setActiveView("chat")} />
+        )}
+
         {/* Messages Area */}
+        {activeView === "chat" && (
+        <div className="chat-view">
         <div className="chat-messages-container">
           {messages.length === 0 && !error && (
             <div className="welcome-message">
@@ -314,6 +359,7 @@ export default function App() {
               role={msg.role}
               content={msg.content}
               timestamp={msg.timestamp}
+              imageBase64={msg.imageBase64}
             />
           ))}
 
@@ -328,6 +374,8 @@ export default function App() {
           disabled={!activeConversationId}
           isLoading={isLoading}
         />
+        </div>
+        )}
       </main>
     </div>
   );

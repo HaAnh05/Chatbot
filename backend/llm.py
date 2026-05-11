@@ -48,6 +48,7 @@ class EduAgent:
         user_query: str,
         context_text: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        image_base64: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         guidance_text = self._build_turn_guidance(
             user_query=user_query,
@@ -72,7 +73,17 @@ class EduAgent:
                 role = "assistant" if msg.get("role") == "assistant" else "user"
                 messages.append({"role": role, "content": msg.get("content", "")})
 
-        messages.append({"role": "user", "content": user_query})
+        if image_base64:
+            user_content = [
+                {"type": "text", "text": user_query},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                },
+            ]
+            messages.append({"role": "user", "content": user_content})
+        else:
+            messages.append({"role": "user", "content": user_query})
         return messages
 
     def _build_turn_guidance(
@@ -201,6 +212,7 @@ class EduAgent:
         self,
         user_query: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        image_base64: Optional[str] = None,
     ) -> str:
         try:
             retriever = self.db.as_retriever(search_kwargs={"k": 2})
@@ -211,6 +223,7 @@ class EduAgent:
                 user_query=user_query,
                 context_text=context_text,
                 conversation_history=conversation_history,
+                image_base64=image_base64,
             )
             return self._call_lm_studio(messages)
         except requests.exceptions.ConnectionError:

@@ -12,7 +12,7 @@ import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 import "./ChatMessage.css";
 
-export default function ChatMessage({ role, content, timestamp }) {
+export default function ChatMessage({ role, content, timestamp, imageBase64 }) {
   const isUser = role === "user";
 
   return (
@@ -24,6 +24,11 @@ export default function ChatMessage({ role, content, timestamp }) {
         )}
       </div>
       <div className="message-content">
+        {imageBase64 && (
+          <div className="message-image">
+            <img src={`data:image/jpeg;base64,${imageBase64}`} alt="Ảnh đã gửi" />
+          </div>
+        )}
         <ReactMarkdown
           remarkPlugins={[remarkMath]}
           rehypePlugins={[rehypeHighlight, rehypeKatex]}

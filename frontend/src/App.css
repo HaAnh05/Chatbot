@@ -16,9 +16,10 @@ body {
 
 .app-container {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   gap: 18px;
   padding: 18px;
+  overflow: hidden;
 }
 
 .chat-main {
@@ -97,6 +98,18 @@ body {
   padding-top: 6px;
 }
 
+.current-subject-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #0066ff, #2d8cff);
+  color: white;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
 .subject-selector label {
   font-size: 13px;
   font-weight: 700;
@@ -120,6 +133,152 @@ body {
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.14);
 }
 
+/* Navigation Tabs */
+.nav-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 24px 16px;
+  border-bottom: 1px solid #eef2f8;
+  background: #ffffff;
+}
+
+.nav-tab {
+  padding: 8px 18px;
+  border-radius: 12px;
+  border: 1px solid #d6e1f2;
+  background: white;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  color: #4a5d7a;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.nav-tab:hover {
+  border-color: #0066ff;
+  color: #0066ff;
+  background: #f0f4ff;
+}
+
+.nav-tab.active {
+  background: linear-gradient(135deg, #0066ff, #2d8cff);
+  color: white;
+  border-color: #0066ff;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
+}
+
+/* Shared form styles for panels */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a5d7a;
+}
+
+.form-group input,
+.form-group select {
+  padding: 12px 14px;
+  border: 1px solid #d6e1f2;
+  border-radius: 14px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: #0066ff;
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.12);
+}
+
+.primary-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #0066ff, #2d8cff);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 20px rgba(0, 102, 255, 0.18);
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.secondary-btn {
+  padding: 12px 24px;
+  background: white;
+  color: #4a5d7a;
+  border: 1px solid #d6e1f2;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondary-btn:hover {
+  background: #f0f4ff;
+  border-color: #0066ff;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #11203f;
+}
+
+.close-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #d6e1f2;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background: #fee2e2;
+  border-color: #e11d48;
+  color: #e11d48;
+}
+
+.panel-error {
+  padding: 12px 16px;
+  background: #fff4f4;
+  color: #a12b32;
+  border-radius: 12px;
+  border-left: 4px solid #e11d48;
+  font-size: 14px;
+}
+
 .chat-messages-container {
   flex: 1;
   overflow-y: auto;
@@ -128,6 +287,25 @@ body {
   flex-direction: column;
   gap: 18px;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  min-height: 0;
+}
+
+/* Panels fill remaining space and scroll internally */
+.quiz-panel,
+.flashcard-panel,
+.minigame-panel,
+.progress-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Chat view wrapper fills remaining space */
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .welcome-message {

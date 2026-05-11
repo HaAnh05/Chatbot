@@ -3,9 +3,8 @@ Session Manager for handling conversation context and history
 """
 
 from typing import List, Dict
-from datetime import datetime
 from backend.database import SessionLocal
-from backend.models import User, Conversation, Message
+from backend.models import User, Conversation, Message, now_gmt7
 
 
 class ConversationManager:
@@ -27,7 +26,7 @@ class ConversationManager:
     def create_conversation(self, user_id: int, subject: str = "cpp", title: str = None) -> Conversation:
         """Create new conversation session"""
         if title is None:
-            title = f"{subject.upper()} Conversation - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+            title = f"{subject.upper()} Conversation - {now_gmt7().strftime('%Y-%m-%d %H:%M')}"
         
         conversation = Conversation(user_id=user_id, subject=subject, title=title)
         self.db.add(conversation)

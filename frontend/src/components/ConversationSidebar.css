@@ -4,6 +4,7 @@
 
 .conversation-sidebar {
   width: 320px;
+  min-width: 280px;
   background-color: rgba(255, 255, 255, 0.98);
   border-right: 1px solid #eef2f6;
   display: flex;

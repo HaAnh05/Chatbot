@@ -9,6 +9,9 @@ from backend.database import SessionLocal, init_db
 from backend.llm import EduAgent
 from backend.models import Conversation, Message
 from backend.session_manager import ConversationManager
+from backend.grader import ExerciseManager
+from backend.analytics import ProgressTracker
+from backend.models import StudentProgress
 
 # Load environment variables before creating local agents
 load_dotenv()
@@ -42,6 +45,7 @@ class ChatRequest(BaseModel):
     message: str
     subject: Optional[str] = "cpp"
     conversation_id: Optional[int] = None
+    image_base64: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -66,6 +70,37 @@ class ConversationData(BaseModel):
     title: str
     created_at: str
     message_count: int
+
+
+class QuizGenerateRequest(BaseModel):
+    subject: str = "cpp"
+    topic: str
+    difficulty: str = "beginner"
+    count: int = 5
+
+
+class QuizSubmitRequest(BaseModel):
+    exercise_id: int
+    user_id: int = 1
+    answers: list
+
+
+class FlashcardGenerateRequest(BaseModel):
+    subject: str = "cpp"
+    topic: str
+    count: int = 10
+
+
+class MinigameStartRequest(BaseModel):
+    subject: str = "cpp"
+    topic: str
+    difficulty: str = "beginner"
+
+
+class MinigameSubmitRequest(BaseModel):
+    exercise_id: int
+    user_id: int = 1
+    submitted_code: str
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -95,14 +130,25 @@ async def chat(req: ChatRequest):
         history = conv_manager.get_conversation_history(conversation.id, limit=5)
         history_list = [{"role": m.role, "content": m.content} for m in history]
 
-        raw_reply = agent.ask(req.message, conversation_history=history_list)
+        raw_reply = agent.ask(req.message, conversation_history=history_list, image_base64=req.image_base64)
         print("\n" + "=" * 50)
         print(f"RAW AI RESPONSE:\n{raw_reply}")
         print("=" * 50 + "\n")
         reply = raw_reply.strip()
 
-        conv_manager.add_message(conversation.id, "user", req.message)
+        stored_message = req.message
+        if req.image_base64:
+            stored_message = req.message + "\n[image attached]"
+        conv_manager.add_message(conversation.id, "user", stored_message)
         conv_manager.add_message(conversation.id, "assistant", reply)
+
+        # Update progress (non-blocking)
+        try:
+            user = conv_manager.get_or_create_user("guest")
+            tracker = ProgressTracker()
+            tracker.update_progress(user.id, subject, conversation.id)
+        except Exception:
+            pass
 
         conv_manager.close()
         return ChatResponse(reply=reply, conversation_id=conversation.id)
@@ -186,24 +232,137 @@ async def list_conversations():
         user = conv_manager.get_or_create_user("guest")
         conversations = conv_manager.get_user_conversations(user.id)
 
+        result = []
+        for c in conversations:
+            msg_count = len(c.messages)
+            result.append({
+                "id": c.id,
+                "subject": c.subject,
+                "title": c.title,
+                "created_at": c.created_at.isoformat(),
+                "updated_at": c.updated_at.isoformat(),
+                "message_count": msg_count,
+            })
+
         conv_manager.close()
 
-        return {
-            "conversations": [
-                {
-                    "id": c.id,
-                    "subject": c.subject,
-                    "title": c.title,
-                    "created_at": c.created_at.isoformat(),
-                    "updated_at": c.updated_at.isoformat(),
-                    "message_count": len(c.messages),
-                }
-                for c in conversations
-            ]
-        }
+        return {"conversations": result}
     except Exception as e:
         conv_manager.close()
         return {"error": str(e)}
+
+
+# ============ Quiz / Flashcard / Minigame / Progress Endpoints ============
+
+
+@app.post("/quiz/generate")
+async def generate_quiz(req: QuizGenerateRequest):
+    """Generate quiz questions for a topic."""
+    manager = ExerciseManager()
+    try:
+        result = manager.generate_quiz(req.subject, req.topic, req.difficulty, req.count)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        manager.close()
+
+
+@app.post("/quiz/submit")
+async def submit_quiz(req: QuizSubmitRequest):
+    """Submit quiz answers and get score."""
+    manager = ExerciseManager()
+    try:
+        result = manager.grade_quiz(req.exercise_id, req.user_id, req.answers)
+        # Update exercise completion count
+        try:
+            db = SessionLocal()
+            progress = db.query(StudentProgress).filter(
+                StudentProgress.user_id == req.user_id
+            ).first()
+            if progress:
+                progress.total_exercises_completed += 1
+                db.commit()
+            db.close()
+        except Exception:
+            pass
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        manager.close()
+
+
+@app.post("/flashcard/generate")
+async def generate_flashcards(req: FlashcardGenerateRequest):
+    """Generate flashcards for a topic."""
+    manager = ExerciseManager()
+    try:
+        result = manager.generate_flashcards(req.subject, req.topic, req.count)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        manager.close()
+
+
+@app.post("/minigame/start")
+async def start_minigame(req: MinigameStartRequest):
+    """Start a coding minigame challenge."""
+    manager = ExerciseManager()
+    try:
+        result = manager.start_minigame(req.subject, req.topic, req.difficulty)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        manager.close()
+
+
+@app.post("/minigame/submit")
+async def submit_minigame(req: MinigameSubmitRequest):
+    """Submit minigame code for evaluation."""
+    manager = ExerciseManager()
+    try:
+        result = manager.submit_minigame(req.exercise_id, req.user_id, req.submitted_code)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        manager.close()
+
+
+@app.get("/progress/{user_id}")
+async def get_progress(user_id: int, subject: Optional[str] = "cpp"):
+    """Get student progress summary."""
+    tracker = ProgressTracker()
+    try:
+        summary = tracker.get_progress_summary(user_id, subject)
+        analytics = tracker.get_learning_analytics(user_id)
+        return {"summary": summary, "analytics": analytics}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        tracker.close()
+
+
+@app.post("/progress/update")
+async def update_progress(user_id: int = 1, subject: str = "cpp", conversation_id: int = 0):
+    """Manually update student progress."""
+    tracker = ProgressTracker()
+    try:
+        progress = tracker.update_progress(user_id, subject, conversation_id)
+        return {
+            "user_id": progress.user_id,
+            "subject": progress.subject,
+            "confidence_level": progress.confidence_level,
+            "total_conversations": progress.total_conversations,
+            "total_exercises_completed": progress.total_exercises_completed,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        tracker.close()
 
 
 if __name__ == "__main__":

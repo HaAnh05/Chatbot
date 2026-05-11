@@ -169,3 +169,20 @@
     max-width: 100%;
   }
 }
+
+.message-image {
+  margin-bottom: 10px;
+}
+
+.message-image img {
+  max-width: 300px;
+  max-height: 300px;
+  border-radius: 12px;
+  object-fit: contain;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.message-image img:hover {
+  transform: scale(1.02);
+}

@@ -6,7 +6,7 @@ Tracks learning progress, topic coverage, and provides insights
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from backend.database import SessionLocal
-from backend.models import User, Conversation, Message, StudentProgress, Exercise, ExerciseSubmission
+from backend.models import User, Conversation, Message, StudentProgress, Exercise, ExerciseSubmission, now_gmt7
 from collections import defaultdict
 
 
@@ -57,7 +57,7 @@ class ProgressTracker:
                 if current_topics:
                     progress.confidence_level = sum(current_topics.values()) / len(current_topics)
 
-                progress.last_updated = datetime.utcnow()
+                progress.last_updated = now_gmt7()
 
             self.db.commit()
             self.db.refresh(progress)
@@ -290,7 +290,7 @@ class ProgressTracker:
         sorted_dates = sorted(dates, reverse=True)
 
         streak = 0
-        current_date = datetime.utcnow().date()
+        current_date = now_gmt7().date()
 
         for date in sorted_dates:
             if date == current_date:
@@ -307,7 +307,7 @@ class ProgressTracker:
     def _get_weekly_progress(self, conversations: List[Conversation]) -> Dict[str, int]:
         """Get conversation count by day for the last 7 days"""
         weekly = defaultdict(int)
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = now_gmt7() - timedelta(days=7)
 
         for conv in conversations:
             if conv.created_at >= week_ago:

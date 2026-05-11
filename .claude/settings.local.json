@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(py *)",
+      "PowerShell(conda run *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(taskkill *)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/conversations\" -Method GET 2>&1 | ConvertTo-Json)",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; & \"C:\\\\Users\\\\Hi\\\\miniconda3\\\\envs\\\\bot_env\\\\python.exe\" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000)"
+    ]
+  }
+}
