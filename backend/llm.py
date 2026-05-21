@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -6,8 +7,15 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from backend.config import LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
+from backend.logger import (
+    get_logger,
+    log_llm_request,
+    log_llm_response,
+)
 
 SYSTEM_PROMPT_PATH = "prompts/system_prompt.txt"
+
+logger = get_logger("llm")
 
 
 class EduAgent:
@@ -27,6 +35,11 @@ class EduAgent:
         self.base_url = LLM_BASE_URL
         self.timeout = None if LLM_TIMEOUT <= 0 else LLM_TIMEOUT
 
+        logger.info(f"Initializing EduAgent for subject: {self.subject}")
+        logger.info(f"  LLM_BASE_URL: {self.base_url}")
+        logger.info(f"  LLM_MODEL: {self.model}")
+        logger.info(f"  LLM_TIMEOUT: {self.timeout}")
+
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
@@ -38,10 +51,12 @@ class EduAgent:
         if os.path.exists(SYSTEM_PROMPT_PATH):
             with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as f:
                 self.system_instruction = f.read()
+            logger.info(f"  System prompt loaded: {len(self.system_instruction)} chars")
         else:
             self.system_instruction = (
                 "Ban la tro ly hoc tap chuyen giai bai tap C++/Python tai UET."
             )
+            logger.warning(f"  System prompt file not found: {SYSTEM_PROMPT_PATH}")
 
     def _build_messages(
         self,
@@ -82,6 +97,7 @@ class EduAgent:
                 },
             ]
             messages.append({"role": "user", "content": user_content})
+            logger.info(f"  Image attached: {len(image_base64)} chars base64")
         else:
             messages.append({"role": "user", "content": user_query})
         return messages
@@ -140,34 +156,47 @@ class EduAgent:
             f"- {prior_assistant or 'Khong lap lai nguyen van cau tra loi truoc do.'}"
         )
 
-    def _extract_text_content(self, payload: Dict) -> str:
+    def _extract_text_content(self, payload: Dict) -> tuple:
+        """
+        Trả về (content, reasoning_content) từ response.
+        reasoning_content là thinking process của model (nếu có).
+        """
+        reasoning = ""
+
         choices = payload.get("choices")
         if isinstance(choices, list) and choices:
             message = choices[0].get("message", {})
+
+            # Lấy thinking/reasoning
+            reasoning = message.get("reasoning_content", "") or ""
+
             content = message.get("content", "")
             if isinstance(content, str):
-                return content.strip()
+                return content.strip(), reasoning.strip()
             if isinstance(content, list):
                 parts = []
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
                         parts.append(str(item.get("text", "")))
-                return "\n".join(part for part in parts if part).strip()
+                return "\n".join(part for part in parts if part).strip(), reasoning.strip()
 
         message = payload.get("message", {})
         if isinstance(message, dict):
             content = message.get("content", "")
             if isinstance(content, str):
-                return content.strip()
+                return content.strip(), reasoning.strip()
 
         for key in ("text", "output_text", "response", "content"):
             value = payload.get(key)
             if isinstance(value, str):
-                return value.strip()
+                return value.strip(), reasoning.strip()
 
         raise ValueError(f"Khong doc duoc noi dung tra loi tu LM Studio: {payload}")
 
-    def _call_lm_studio(self, messages: List[Dict[str, str]]) -> str:
+    def _call_lm_studio(self, messages: List[Dict[str, str]]) -> tuple:
+        """
+        Gọi LM Studio, trả về (content, reasoning).
+        """
         openai_payload = {
             "model": self.model,
             "messages": messages,
@@ -185,22 +214,37 @@ class EduAgent:
             (f"{self.base_url}/api/v1/chat", direct_payload),
         ]
 
+        log_llm_request(logger, self.model, messages, openai_payload)
+
         last_error = None
         saw_connection_error = False
         saw_timeout_error = False
+
         for url, payload in attempts:
             try:
+                logger.info(f"  Calling: {url}")
+                start_time = time.time()
                 response = requests.post(url, json=payload, timeout=self.timeout)
+                elapsed = time.time() - start_time
                 response.raise_for_status()
-                return self._extract_text_content(response.json())
+
+                response_data = response.json()
+                log_llm_response(logger, response_data, elapsed)
+
+                content, reasoning = self._extract_text_content(response_data)
+                return content, reasoning
+
             except requests.exceptions.ConnectionError as exc:
                 saw_connection_error = True
                 last_error = exc
+                logger.error(f"  Connection error: {exc}")
             except requests.exceptions.Timeout as exc:
                 saw_timeout_error = True
                 last_error = exc
+                logger.error(f"  Timeout error: {exc}")
             except (requests.exceptions.RequestException, ValueError) as exc:
                 last_error = exc
+                logger.error(f"  Request error: {exc}")
 
         if saw_connection_error:
             raise requests.exceptions.ConnectionError(str(last_error))
@@ -214,10 +258,15 @@ class EduAgent:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         image_base64: Optional[str] = None,
     ) -> str:
+        logger.info(f"ask() called | subject={self.subject} | query={user_query[:100]}")
+
         try:
+            # RAG retrieval
+            logger.info("  Retrieving context from ChromaDB...")
             retriever = self.db.as_retriever(search_kwargs={"k": 2})
             docs = retriever.invoke(user_query)
             context_text = "\n".join(doc.page_content for doc in docs)
+            logger.info(f"  Retrieved {len(docs)} docs, {len(context_text)} chars context")
 
             messages = self._build_messages(
                 user_query=user_query,
@@ -225,16 +274,35 @@ class EduAgent:
                 conversation_history=conversation_history,
                 image_base64=image_base64,
             )
-            return self._call_lm_studio(messages)
+
+            content, reasoning = self._call_lm_studio(messages)
+
+            if reasoning:
+                logger.info("THINKING PROCESS:")
+                for line in reasoning.split("\n"):
+                    if line.strip():
+                        logger.info(f"  {line.strip()}")
+
+            logger.info(f"FINAL ANSWER ({len(content)} chars):")
+            logger.info(f"  {content[:300]}{'...' if len(content) > 300 else ''}")
+
+            return content
+
         except requests.exceptions.ConnectionError:
-            return (
+            msg = (
                 "Khong ket noi duoc LM Studio tai "
                 f"{self.base_url}. Hay mo Local Server va load model `{self.model}` truoc."
             )
+            logger.error(msg)
+            return msg
         except requests.exceptions.Timeout:
-            return (
+            msg = (
                 "Request den LM Studio bi timeout. Neu ban muon tat timeout, dat "
                 "`LLM_TIMEOUT=0` trong `.env` roi khoi dong lai backend."
             )
+            logger.error(msg)
+            return msg
         except Exception as e:
-            return f"Da xay ra loi: {str(e)}"
+            msg = f"Da xay ra loi: {str(e)}"
+            logger.error(msg, exc_info=True)
+            return msg

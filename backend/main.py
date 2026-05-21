@@ -1,7 +1,7 @@
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -12,9 +12,12 @@ from backend.session_manager import ConversationManager
 from backend.grader import ExerciseManager
 from backend.analytics import ProgressTracker
 from backend.models import StudentProgress
+from backend.logger import get_logger
 
 # Load environment variables before creating local agents
 load_dotenv()
+
+logger = get_logger("main")
 
 app = FastAPI(title="Educational Chatbot API")
 app.add_middleware(
@@ -28,9 +31,10 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event():
     """Initialize database and agent on startup."""
+    logger.info("Starting Educational Chatbot API...")
     init_db()
-    print("Database initialized")
-    print("API ready at http://localhost:8000")
+    logger.info("Database initialized")
+    logger.info("API ready at http://localhost:8000")
 
 
 agents = {
@@ -109,6 +113,9 @@ async def chat(req: ChatRequest):
     Chat endpoint - process user message and return AI response.
     Supports conversation history and multi-subject context.
     """
+    logger.info(f"[CHAT] subject={req.subject} | conv_id={req.conversation_id} | "
+                f"has_image={bool(req.image_base64)} | query={req.message[:80]}")
+
     subject = req.subject if req.subject in agents else "cpp"
     agent = agents[subject]
 
@@ -121,6 +128,7 @@ async def chat(req: ChatRequest):
             ).first()
             db.close()
             if not conversation:
+                logger.warning(f"  Conversation {req.conversation_id} not found, creating new")
                 user = conv_manager.get_or_create_user("guest")
                 conversation = conv_manager.create_conversation(user.id, subject)
         else:
@@ -129,11 +137,9 @@ async def chat(req: ChatRequest):
 
         history = conv_manager.get_conversation_history(conversation.id, limit=5)
         history_list = [{"role": m.role, "content": m.content} for m in history]
+        logger.info(f"  History: {len(history_list)} messages")
 
         raw_reply = agent.ask(req.message, conversation_history=history_list, image_base64=req.image_base64)
-        print("\n" + "=" * 50)
-        print(f"RAW AI RESPONSE:\n{raw_reply}")
-        print("=" * 50 + "\n")
         reply = raw_reply.strip()
 
         stored_message = req.message
@@ -151,16 +157,19 @@ async def chat(req: ChatRequest):
             pass
 
         conv_manager.close()
+        logger.info(f"[CHAT] Done | conv_id={conversation.id} | reply_len={len(reply)}")
         return ChatResponse(reply=reply, conversation_id=conversation.id)
 
     except Exception as e:
         conv_manager.close()
+        logger.error(f"[CHAT] ERROR: {e}", exc_info=True)
         return ChatResponse(reply=f"Loi: {str(e)}", conversation_id=-1)
 
 
 @app.post("/conversations", response_model=ConversationData)
 async def create_conversation(req: ConversationCreate):
     """Create new conversation session."""
+    logger.info(f"[CONV] Creating conversation | subject={req.subject}")
     conv_manager = ConversationManager()
     try:
         user = conv_manager.get_or_create_user("guest")
@@ -171,6 +180,7 @@ async def create_conversation(req: ConversationCreate):
         )
         conv_manager.close()
 
+        logger.info(f"[CONV] Created | id={conversation.id} | title={conversation.title}")
         return ConversationData(
             id=conversation.id,
             subject=conversation.subject,
@@ -180,12 +190,14 @@ async def create_conversation(req: ConversationCreate):
         )
     except Exception:
         conv_manager.close()
+        logger.error(f"[CONV] Create failed", exc_info=True)
         raise
 
 
 @app.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: int):
     """Get conversation with all messages."""
+    logger.info(f"[CONV] Getting conversation {conversation_id}")
     conv_manager = ConversationManager()
     try:
         db = SessionLocal()
@@ -196,6 +208,7 @@ async def get_conversation(conversation_id: int):
         if not conversation:
             db.close()
             conv_manager.close()
+            logger.warning(f"[CONV] Conversation {conversation_id} not found")
             return {"error": "Conversation not found"}
 
         messages = db.query(Message).filter(
@@ -205,6 +218,7 @@ async def get_conversation(conversation_id: int):
         db.close()
         conv_manager.close()
 
+        logger.info(f"[CONV] Found {len(messages)} messages")
         return {
             "id": conversation.id,
             "subject": conversation.subject,
@@ -221,12 +235,14 @@ async def get_conversation(conversation_id: int):
         }
     except Exception as e:
         conv_manager.close()
+        logger.error(f"[CONV] Get failed: {e}", exc_info=True)
         return {"error": str(e)}
 
 
 @app.get("/conversations")
 async def list_conversations():
     """List all conversations for guest user."""
+    logger.info("[CONV] Listing conversations")
     conv_manager = ConversationManager()
     try:
         user = conv_manager.get_or_create_user("guest")
@@ -245,10 +261,11 @@ async def list_conversations():
             })
 
         conv_manager.close()
-
+        logger.info(f"[CONV] Found {len(result)} conversations")
         return {"conversations": result}
     except Exception as e:
         conv_manager.close()
+        logger.error(f"[CONV] List failed: {e}", exc_info=True)
         return {"error": str(e)}
 
 
@@ -258,11 +275,15 @@ async def list_conversations():
 @app.post("/quiz/generate")
 async def generate_quiz(req: QuizGenerateRequest):
     """Generate quiz questions for a topic."""
+    logger.info(f"[API] POST /quiz/generate | subject={req.subject} | topic={req.topic} | "
+                f"difficulty={req.difficulty} | count={req.count}")
     manager = ExerciseManager()
     try:
         result = manager.generate_quiz(req.subject, req.topic, req.difficulty, req.count)
+        logger.info(f"[API] Quiz generated | exercise_id={result.get('exercise_id')} | total={result.get('total')}")
         return result
     except Exception as e:
+        logger.error(f"[API] Quiz generate failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         manager.close()
@@ -271,6 +292,7 @@ async def generate_quiz(req: QuizGenerateRequest):
 @app.post("/quiz/submit")
 async def submit_quiz(req: QuizSubmitRequest):
     """Submit quiz answers and get score."""
+    logger.info(f"[API] POST /quiz/submit | exercise_id={req.exercise_id} | user_id={req.user_id}")
     manager = ExerciseManager()
     try:
         result = manager.grade_quiz(req.exercise_id, req.user_id, req.answers)
@@ -286,8 +308,10 @@ async def submit_quiz(req: QuizSubmitRequest):
             db.close()
         except Exception:
             pass
+        logger.info(f"[API] Quiz graded | score={result.get('score')}/{result.get('total')}")
         return result
     except Exception as e:
+        logger.error(f"[API] Quiz submit failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         manager.close()
@@ -296,11 +320,14 @@ async def submit_quiz(req: QuizSubmitRequest):
 @app.post("/flashcard/generate")
 async def generate_flashcards(req: FlashcardGenerateRequest):
     """Generate flashcards for a topic."""
+    logger.info(f"[API] POST /flashcard/generate | subject={req.subject} | topic={req.topic} | count={req.count}")
     manager = ExerciseManager()
     try:
         result = manager.generate_flashcards(req.subject, req.topic, req.count)
+        logger.info(f"[API] Flashcards generated | exercise_id={result.get('exercise_id')} | total={result.get('total')}")
         return result
     except Exception as e:
+        logger.error(f"[API] Flashcard generate failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         manager.close()
@@ -309,11 +336,14 @@ async def generate_flashcards(req: FlashcardGenerateRequest):
 @app.post("/minigame/start")
 async def start_minigame(req: MinigameStartRequest):
     """Start a coding minigame challenge."""
+    logger.info(f"[API] POST /minigame/start | subject={req.subject} | topic={req.topic} | difficulty={req.difficulty}")
     manager = ExerciseManager()
     try:
         result = manager.start_minigame(req.subject, req.topic, req.difficulty)
+        logger.info(f"[API] Minigame started | exercise_id={result.get('exercise_id')} | title={result.get('title')}")
         return result
     except Exception as e:
+        logger.error(f"[API] Minigame start failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         manager.close()
@@ -322,11 +352,15 @@ async def start_minigame(req: MinigameStartRequest):
 @app.post("/minigame/submit")
 async def submit_minigame(req: MinigameSubmitRequest):
     """Submit minigame code for evaluation."""
+    logger.info(f"[API] POST /minigame/submit | exercise_id={req.exercise_id} | user_id={req.user_id} | "
+                f"code_len={len(req.submitted_code)}")
     manager = ExerciseManager()
     try:
         result = manager.submit_minigame(req.exercise_id, req.user_id, req.submitted_code)
+        logger.info(f"[API] Minigame evaluated | passed={result.get('passed')} | score={result.get('score')}")
         return result
     except Exception as e:
+        logger.error(f"[API] Minigame submit failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         manager.close()
@@ -335,12 +369,16 @@ async def submit_minigame(req: MinigameSubmitRequest):
 @app.get("/progress/{user_id}")
 async def get_progress(user_id: int, subject: Optional[str] = "cpp"):
     """Get student progress summary."""
+    logger.info(f"[API] GET /progress/{user_id} | subject={subject}")
     tracker = ProgressTracker()
     try:
         summary = tracker.get_progress_summary(user_id, subject)
         analytics = tracker.get_learning_analytics(user_id)
+        logger.info(f"[API] Progress loaded | confidence={summary.get('confidence_level')} | "
+                     f"conversations={summary.get('total_conversations')}")
         return {"summary": summary, "analytics": analytics}
     except Exception as e:
+        logger.error(f"[API] Progress get failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         tracker.close()
@@ -349,9 +387,11 @@ async def get_progress(user_id: int, subject: Optional[str] = "cpp"):
 @app.post("/progress/update")
 async def update_progress(user_id: int = 1, subject: str = "cpp", conversation_id: int = 0):
     """Manually update student progress."""
+    logger.info(f"[API] POST /progress/update | user_id={user_id} | subject={subject}")
     tracker = ProgressTracker()
     try:
         progress = tracker.update_progress(user_id, subject, conversation_id)
+        logger.info(f"[API] Progress updated | confidence={progress.confidence_level}")
         return {
             "user_id": progress.user_id,
             "subject": progress.subject,
@@ -360,6 +400,7 @@ async def update_progress(user_id: int = 1, subject: str = "cpp", conversation_i
             "total_exercises_completed": progress.total_exercises_completed,
         }
     except Exception as e:
+        logger.error(f"[API] Progress update failed: {e}", exc_info=True)
         return {"error": str(e)}
     finally:
         tracker.close()

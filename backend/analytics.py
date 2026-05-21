@@ -7,7 +7,10 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from backend.database import SessionLocal
 from backend.models import User, Conversation, Message, StudentProgress, Exercise, ExerciseSubmission, now_gmt7
+from backend.logger import get_logger, log_progress_event
 from collections import defaultdict
+
+logger = get_logger("analytics")
 
 
 class ProgressTracker:
@@ -15,9 +18,15 @@ class ProgressTracker:
 
     def __init__(self):
         self.db = SessionLocal()
+        logger.debug("ProgressTracker initialized")
 
     def update_progress(self, user_id: int, subject: str, conversation_id: int) -> StudentProgress:
         """Update student progress based on conversation activity"""
+        log_progress_event(logger, "Updating progress", {
+            "user_id": user_id,
+            "subject": subject,
+            "conversation_id": conversation_id,
+        })
         try:
             # Get or create progress record
             progress = self.db.query(StudentProgress).filter(
@@ -71,6 +80,10 @@ class ProgressTracker:
 
     def get_progress_summary(self, user_id: int, subject: str) -> Dict:
         """Get comprehensive progress summary"""
+        log_progress_event(logger, "Getting progress summary", {
+            "user_id": user_id,
+            "subject": subject,
+        })
         try:
             progress = self.db.query(StudentProgress).filter(
                 StudentProgress.user_id == user_id,
@@ -110,6 +123,7 @@ class ProgressTracker:
 
     def get_learning_analytics(self, user_id: int) -> Dict:
         """Get detailed learning analytics across all subjects"""
+        log_progress_event(logger, "Getting learning analytics", {"user_id": user_id})
         try:
             # Get all progress records
             progress_records = self.db.query(StudentProgress).filter(

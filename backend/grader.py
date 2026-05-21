@@ -4,6 +4,7 @@ Exercise Manager - Quiz, Flashcard, and Minigame generation and grading
 
 import json
 import re
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -11,6 +12,16 @@ import requests
 from backend.config import LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
 from backend.database import SessionLocal
 from backend.models import Exercise, ExerciseSubmission
+from backend.logger import (
+    get_logger,
+    log_llm_request,
+    log_llm_response,
+    log_quiz_event,
+    log_flashcard_event,
+    log_minigame_event,
+)
+
+logger = get_logger("grader")
 
 
 class ExerciseManager:
@@ -21,9 +32,12 @@ class ExerciseManager:
         self.model = LLM_MODEL
         self.base_url = LLM_BASE_URL
         self.timeout = None if LLM_TIMEOUT <= 0 else LLM_TIMEOUT
+        logger.info(f"ExerciseManager initialized | model={self.model} | base_url={self.base_url}")
 
-    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Call LLM with a system prompt and user prompt"""
+    def _call_llm(self, system_prompt: str, user_prompt: str) -> tuple:
+        """
+        Call LLM, trả về (content, reasoning_content).
+        """
         payload = {
             "model": self.model,
             "messages": [
@@ -34,17 +48,38 @@ class ExerciseManager:
             "stream": False,
         }
         url = f"{self.base_url}/v1/chat/completions"
+
+        log_llm_request(logger, self.model, payload["messages"], payload)
+
+        logger.info(f"  Calling LLM at {url}")
+        start_time = time.time()
         response = requests.post(url, json=payload, timeout=self.timeout)
+        elapsed = time.time() - start_time
         response.raise_for_status()
+
         data = response.json()
+        log_llm_response(logger, data, elapsed)
+
         choices = data.get("choices", [])
         if choices:
-            return choices[0].get("message", {}).get("content", "").strip()
+            message = choices[0].get("message", {})
+            content = message.get("content", "").strip()
+            reasoning = message.get("reasoning_content", "").strip()
+
+            if reasoning:
+                logger.info("THINKING PROCESS:")
+                for line in reasoning.split("\n"):
+                    if line.strip():
+                        logger.info(f"  {line.strip()}")
+
+            return content, reasoning
+
         raise ValueError("No response from LLM")
 
     def _parse_json_response(self, text: str) -> any:
         """Extract JSON from LLM response, handling markdown code fences"""
-        # Try to find JSON array or object in the response
+        logger.debug(f"Parsing JSON response ({len(text)} chars)")
+
         # Strip markdown code fences
         cleaned = text.strip()
         cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
@@ -53,7 +88,9 @@ class ExerciseManager:
 
         # Try parsing the whole thing first
         try:
-            return json.loads(cleaned)
+            result = json.loads(cleaned)
+            logger.debug(f"  JSON parsed successfully: {type(result).__name__}")
+            return result
         except json.JSONDecodeError:
             pass
 
@@ -62,10 +99,13 @@ class ExerciseManager:
             match = re.search(pattern, cleaned)
             if match:
                 try:
-                    return json.loads(match.group())
+                    result = json.loads(match.group())
+                    logger.debug(f"  JSON extracted via regex: {type(result).__name__}")
+                    return result
                 except json.JSONDecodeError:
                     continue
 
+        logger.error(f"  Failed to parse JSON. Raw text: {text[:500]}")
         raise ValueError(f"Could not parse JSON from LLM response: {text[:200]}")
 
     def generate_quiz(
@@ -76,7 +116,13 @@ class ExerciseManager:
         count: int = 5,
     ) -> Dict:
         """Generate multiple-choice quiz questions via LLM"""
-        lang = "Vietnamese" if subject == "cpp" else "Vietnamese"
+        log_quiz_event(logger, "Generating quiz", {
+            "subject": subject,
+            "topic": topic,
+            "difficulty": difficulty,
+            "count": count,
+        })
+
         system_prompt = (
             "You are an educational quiz generator. "
             "Generate multiple-choice questions in JSON format. "
@@ -94,7 +140,13 @@ class ExerciseManager:
         )
 
         try:
-            raw = self._call_llm(system_prompt, user_prompt)
+            raw, reasoning = self._call_llm(system_prompt, user_prompt)
+
+            log_quiz_event(logger, "LLM response received", {
+                "raw_length": len(raw),
+                "has_thinking": bool(reasoning),
+            })
+
             questions = self._parse_json_response(raw)
 
             if not isinstance(questions, list):
@@ -114,6 +166,11 @@ class ExerciseManager:
             self.db.commit()
             self.db.refresh(exercise)
 
+            log_quiz_event(logger, "Quiz saved to DB", {
+                "exercise_id": exercise.id,
+                "questions_count": len(questions),
+            })
+
             # Return questions without answers for the client
             safe_questions = []
             for i, q in enumerate(questions):
@@ -124,14 +181,22 @@ class ExerciseManager:
                     "explanation": q.get("explanation", ""),
                 })
 
-            return {
+            result = {
                 "exercise_id": exercise.id,
                 "questions": safe_questions,
                 "total": len(safe_questions),
             }
 
+            log_quiz_event(logger, "Quiz generation complete", {
+                "exercise_id": exercise.id,
+                "total": len(safe_questions),
+            })
+
+            return result
+
         except Exception as e:
             self.db.rollback()
+            log_quiz_event(logger, "Quiz generation FAILED", {"error": str(e)})
             raise RuntimeError(f"Failed to generate quiz: {str(e)}")
 
     def grade_quiz(
@@ -141,6 +206,12 @@ class ExerciseManager:
         answers: List[Dict],
     ) -> Dict:
         """Grade quiz answers against stored correct answers"""
+        log_quiz_event(logger, "Grading quiz", {
+            "exercise_id": exercise_id,
+            "user_id": user_id,
+            "answers_count": len(answers),
+        })
+
         exercise = self.db.query(Exercise).filter(Exercise.id == exercise_id).first()
         if not exercise:
             raise ValueError(f"Exercise {exercise_id} not found")
@@ -164,6 +235,7 @@ class ExerciseManager:
                     "is_correct": is_correct,
                     "explanation": questions[q_idx].get("explanation", ""),
                 })
+                logger.debug(f"  Q{q_idx}: selected={selected}, correct={correct}, {'OK' if is_correct else 'WRONG'}")
 
         total = len(questions)
         all_correct = score == total
@@ -193,6 +265,12 @@ class ExerciseManager:
         else:
             feedback_text += " Hãy ôn tập lại nhé."
 
+        log_quiz_event(logger, "Quiz graded", {
+            "score": score,
+            "total": total,
+            "feedback": feedback_text,
+        })
+
         return {
             "score": score,
             "total": total,
@@ -207,6 +285,12 @@ class ExerciseManager:
         count: int = 10,
     ) -> Dict:
         """Generate flashcards via LLM"""
+        log_flashcard_event(logger, "Generating flashcards", {
+            "subject": subject,
+            "topic": topic,
+            "count": count,
+        })
+
         system_prompt = (
             "You are an educational flashcard generator. "
             "Generate flashcards in JSON format. "
@@ -223,7 +307,13 @@ class ExerciseManager:
         )
 
         try:
-            raw = self._call_llm(system_prompt, user_prompt)
+            raw, reasoning = self._call_llm(system_prompt, user_prompt)
+
+            log_flashcard_event(logger, "LLM response received", {
+                "raw_length": len(raw),
+                "has_thinking": bool(reasoning),
+            })
+
             cards = self._parse_json_response(raw)
 
             if not isinstance(cards, list):
@@ -243,6 +333,11 @@ class ExerciseManager:
             self.db.commit()
             self.db.refresh(exercise)
 
+            log_flashcard_event(logger, "Flashcards saved to DB", {
+                "exercise_id": exercise.id,
+                "cards_count": len(cards),
+            })
+
             return {
                 "exercise_id": exercise.id,
                 "cards": cards,
@@ -251,6 +346,7 @@ class ExerciseManager:
 
         except Exception as e:
             self.db.rollback()
+            log_flashcard_event(logger, "Flashcard generation FAILED", {"error": str(e)})
             raise RuntimeError(f"Failed to generate flashcards: {str(e)}")
 
     def start_minigame(
@@ -260,6 +356,12 @@ class ExerciseManager:
         difficulty: str = "beginner",
     ) -> Dict:
         """Generate a coding challenge via LLM"""
+        log_minigame_event(logger, "Starting minigame", {
+            "subject": subject,
+            "topic": topic,
+            "difficulty": difficulty,
+        })
+
         system_prompt = (
             "You are an educational coding challenge generator. "
             "Generate a coding challenge in JSON format. "
@@ -280,7 +382,13 @@ class ExerciseManager:
         )
 
         try:
-            raw = self._call_llm(system_prompt, user_prompt)
+            raw, reasoning = self._call_llm(system_prompt, user_prompt)
+
+            log_minigame_event(logger, "LLM response received", {
+                "raw_length": len(raw),
+                "has_thinking": bool(reasoning),
+            })
+
             challenge = self._parse_json_response(raw)
 
             # Store in database
@@ -300,6 +408,12 @@ class ExerciseManager:
             self.db.commit()
             self.db.refresh(exercise)
 
+            log_minigame_event(logger, "Minigame saved to DB", {
+                "exercise_id": exercise.id,
+                "title": challenge.get("title", ""),
+                "test_cases_count": len(challenge.get("test_cases", [])),
+            })
+
             return {
                 "exercise_id": exercise.id,
                 "title": challenge.get("title", ""),
@@ -311,6 +425,7 @@ class ExerciseManager:
 
         except Exception as e:
             self.db.rollback()
+            log_minigame_event(logger, "Minigame generation FAILED", {"error": str(e)})
             raise RuntimeError(f"Failed to generate minigame: {str(e)}")
 
     def submit_minigame(
@@ -320,6 +435,12 @@ class ExerciseManager:
         submitted_code: str,
     ) -> Dict:
         """Evaluate submitted code against test cases using LLM"""
+        log_minigame_event(logger, "Submitting minigame", {
+            "exercise_id": exercise_id,
+            "user_id": user_id,
+            "code_length": len(submitted_code),
+        })
+
         exercise = self.db.query(Exercise).filter(Exercise.id == exercise_id).first()
         if not exercise:
             raise ValueError(f"Exercise {exercise_id} not found")
@@ -343,7 +464,13 @@ class ExerciseManager:
         )
 
         try:
-            raw = self._call_llm(system_prompt, user_prompt)
+            raw, reasoning = self._call_llm(system_prompt, user_prompt)
+
+            log_minigame_event(logger, "LLM evaluation received", {
+                "raw_length": len(raw),
+                "has_thinking": bool(reasoning),
+            })
+
             result = self._parse_json_response(raw)
 
             # Store submission
@@ -357,6 +484,12 @@ class ExerciseManager:
             self.db.add(submission)
             self.db.commit()
 
+            log_minigame_event(logger, "Minigame evaluated", {
+                "passed": result.get("passed", False),
+                "score": result.get("score", 0),
+                "feedback_preview": result.get("feedback", "")[:100],
+            })
+
             return {
                 "passed": result.get("passed", False),
                 "score": result.get("score", 0),
@@ -366,8 +499,10 @@ class ExerciseManager:
 
         except Exception as e:
             self.db.rollback()
+            log_minigame_event(logger, "Minigame evaluation FAILED", {"error": str(e)})
             raise RuntimeError(f"Failed to evaluate code: {str(e)}")
 
     def close(self):
         """Close database session"""
         self.db.close()
+        logger.debug("ExerciseManager session closed")
