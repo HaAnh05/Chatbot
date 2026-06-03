@@ -30,6 +30,31 @@
   color: #152238;
 }
 
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-mode-btn {
+  padding: 10px 14px;
+  background-color: #f8fbff;
+  color: #274163;
+  border: 1px solid #d6e1f2;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.select-mode-btn:hover:not(:disabled),
+.select-mode-btn.active {
+  background-color: #eef5ff;
+  border-color: #0066ff;
+  color: #0051d1;
+}
+
 .new-conversation-btn {
   padding: 10px 16px;
   background-color: #0066ff;
@@ -49,6 +74,71 @@
 
 .new-conversation-btn:disabled {
   background-color: #c7d0df;
+  cursor: not-allowed;
+}
+
+.select-mode-btn:disabled {
+  background-color: #f2f5f9;
+  border-color: #dbe3ee;
+  color: #9aa8ba;
+  cursor: not-allowed;
+}
+
+.selection-toolbar {
+  padding: 12px 16px;
+  border-bottom: 1px solid #eef2f6;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  background-color: #fbfdff;
+}
+
+.selection-count {
+  min-width: 0;
+  color: #4a5d7a;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.select-all-btn,
+.delete-selected-btn {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.select-all-btn {
+  background-color: white;
+  color: #274163;
+  border: 1px solid #d6e1f2;
+}
+
+.select-all-btn:hover:not(:disabled) {
+  background-color: #eef5ff;
+  border-color: #0066ff;
+  color: #0051d1;
+}
+
+.delete-selected-btn {
+  background-color: #fff4f4;
+  color: #b42318;
+  border: 1px solid #ffd0d0;
+}
+
+.delete-selected-btn:hover:not(:disabled) {
+  background-color: #ffe6e6;
+  border-color: #e11d48;
+}
+
+.select-all-btn:disabled,
+.delete-selected-btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
@@ -100,6 +190,36 @@
   color: white;
   border-color: #0051d1;
   box-shadow: 0 12px 24px rgba(0, 102, 255, 0.16);
+}
+
+.conversation-item.selectable {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.conversation-item.selectable.selected {
+  border-color: #0066ff;
+  box-shadow: 0 10px 22px rgba(0, 102, 255, 0.12);
+}
+
+.conversation-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+  accent-color: #0066ff;
+  cursor: pointer;
+}
+
+.conversation-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.conversation-content {
+  display: block;
+  min-width: 0;
+  flex: 1;
 }
 
 .conversation-title {

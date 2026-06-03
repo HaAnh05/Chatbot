@@ -66,6 +66,12 @@ class ConversationCreate(BaseModel):
     title: Optional[str] = None
 
 
+class ConversationDeleteRequest(BaseModel):
+    """Delete one or more conversations."""
+
+    conversation_ids: list[int]
+
+
 class ConversationData(BaseModel):
     """Conversation data model."""
 
@@ -267,6 +273,27 @@ async def list_conversations():
         conv_manager.close()
         logger.error(f"[CONV] List failed: {e}", exc_info=True)
         return {"error": str(e)}
+
+
+@app.delete("/conversations")
+async def delete_conversations(req: ConversationDeleteRequest):
+    """Delete selected conversations for guest user."""
+    logger.info(f"[CONV] Deleting conversations | ids={req.conversation_ids}")
+    conv_manager = ConversationManager()
+    try:
+        user = conv_manager.get_or_create_user("guest")
+        deleted_ids = conv_manager.delete_conversations(user.id, req.conversation_ids)
+        conv_manager.close()
+
+        logger.info(f"[CONV] Deleted {len(deleted_ids)} conversations")
+        return {
+            "deleted_ids": deleted_ids,
+            "deleted_count": len(deleted_ids),
+        }
+    except Exception as e:
+        conv_manager.close()
+        logger.error(f"[CONV] Delete failed: {e}", exc_info=True)
+        return {"error": str(e), "deleted_ids": [], "deleted_count": 0}
 
 
 # ============ Quiz / Flashcard / Minigame / Progress Endpoints ============

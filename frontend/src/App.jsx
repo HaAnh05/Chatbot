@@ -201,6 +201,62 @@ export default function App() {
   };
 
   /**
+   * Delete selected conversations
+   */
+  const handleDeleteConversations = async (conversationIds) => {
+    const idsToDelete = conversationIds.map(Number).filter(Number.isFinite);
+    if (idsToDelete.length === 0) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const result = await api.deleteConversations(idsToDelete);
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      const deletedIds = (result.deleted_ids || []).map(Number);
+      if (deletedIds.length === 0) {
+        return;
+      }
+
+      deletedIds.forEach((id) => localStorage.removeItem(`conv_${id}`));
+
+      const remainingConversations = conversations.filter(
+        (conv) => !deletedIds.includes(conv.id)
+      );
+      setConversations(remainingConversations);
+      localStorage.setItem("conversations", JSON.stringify(remainingConversations));
+
+      if (remainingConversations.length === 0) {
+        setActiveConversationId(null);
+        setMessages([]);
+
+        const newConv = await api.createConversation(subject);
+        setConversations([newConv]);
+        localStorage.setItem("conversations", JSON.stringify([newConv]));
+        setActiveConversationId(newConv.id);
+        return;
+      }
+
+      if (deletedIds.includes(activeConversationId)) {
+        const nextConv = remainingConversations[0];
+        setActiveConversationId(nextConv.id);
+        setSubject(nextConv.subject);
+        await loadMessages(nextConv.id);
+      }
+    } catch (err) {
+      setError("Khong the xoa hoi thoai da chon");
+      console.error("Failed to delete conversations:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
    * Handle subject change
    */
   const handleSubjectChange = (newSubject) => {
@@ -215,6 +271,7 @@ export default function App() {
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onDeleteConversations={handleDeleteConversations}
         isLoading={isLoading}
       />
 

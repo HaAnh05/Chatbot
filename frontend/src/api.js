@@ -107,6 +107,34 @@ export async function getConversation(conversationId) {
   }
 }
 
+/**
+ * Delete selected conversations
+ * @param {number[]} conversationIds - Conversation IDs to delete
+ * @returns {Promise<{deleted_ids: number[], deleted_count: number}>}
+ */
+export async function deleteConversations(conversationIds) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversations`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversation_ids: conversationIds,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Delete conversations error:", error);
+    throw error;
+  }
+}
+
 // ============ Quiz / Flashcard / Minigame / Progress API ============
 
 export async function generateQuiz(subject, topic, difficulty = "beginner", count = 5) {

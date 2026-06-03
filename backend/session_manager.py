@@ -71,6 +71,28 @@ class ConversationManager:
         )
         return conversations
 
+    def delete_conversations(self, user_id: int, conversation_ids: List[int]) -> List[int]:
+        """Delete conversations owned by a user and return deleted IDs."""
+        if not conversation_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(conversation_ids))
+        conversations = (
+            self.db.query(Conversation)
+            .filter(
+                Conversation.user_id == user_id,
+                Conversation.id.in_(unique_ids),
+            )
+            .all()
+        )
+
+        deleted_ids = [conversation.id for conversation in conversations]
+        for conversation in conversations:
+            self.db.delete(conversation)
+
+        self.db.commit()
+        return deleted_ids
+
     def close(self):
         """Close database session"""
         self.db.close()
